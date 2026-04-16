@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AudioDenoiser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --red:         #c41e3a;
+      --red-dark:    #8b1a1a;
+      --red-glow:    rgba(196, 30, 58, 0.25);
+      --beige:       #f5ede0;
+      --beige-deep:  #e8d9c4;
+      --glass-bg:    rgba(245, 237, 224, 0.55);
+      --glass-border:rgba(196, 30, 58, 0.15);
+      --text:        #1e1410;
+      --text-mid:    #5a4035;
+      --text-muted:  #9a8070;
+    }
+
+    /* ── Background ─────────────────────────────────────────── */
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--beige);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .bg-orbs {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.35;
+      animation: drift 18s ease-in-out infinite alternate;
+    }
+    .orb-1 { width: 600px; height: 600px; background: #e8c4b0; top: -200px; left: -150px; animation-delay: 0s; }
+    .orb-2 { width: 400px; height: 400px; background: #c41e3a; top: 30%; right: -100px; opacity: 0.12; animation-delay: -6s; }
+    .orb-3 { width: 500px; height: 500px; background: #d4a882; bottom: -150px; left: 30%; animation-delay: -12s; }
+
+    @keyframes drift {
+      from { transform: translate(0, 0) scale(1); }
+      to   { transform: translate(40px, 30px) scale(1.06); }
+    }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    .page { position: relative; z-index: 1; }
+
+    /* ── Hero ───────────────────────────────────────────────── */
+    .hero {
+      text-align: center;
+      padding: 72px 24px 48px;
+    }
+    .hero-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--red);
+      background: rgba(196, 30, 58, 0.08);
+      border: 1px solid rgba(196, 30, 58, 0.2);
+      border-radius: 100px;
+      padding: 5px 14px;
+      margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.8rem, 7vw, 5.5rem);
+      font-weight: 900;
+      line-height: 1.05;
+      color: var(--text);
+      letter-spacing: -0.03em;
+    }
+    .hero h1 span { color: var(--red); }
+    .hero p {
+      margin-top: 16px;
+      color: var(--text-mid);
+      font-size: 1rem;
+      font-weight: 300;
+      letter-spacing: 0.01em;
+    }
+
+    /* ── Glass card ─────────────────────────────────────────── */
+    .glass {
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      box-shadow: 0 8px 32px rgba(100, 40, 20, 0.08), inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 20px 80px;
+      display: grid;
+      gap: 20px;
+    }
+
+    .card { padding: 32px 36px; }
+    .card-label {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--red);
+      margin-bottom: 20px;
+    }
+
+    /* ── Drop zone ──────────────────────────────────────────── */
+    #drop-zone {
+      border: 2px dashed rgba(196, 30, 58, 0.25);
+      border-radius: 14px;
+      padding: 52px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    #drop-zone::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(196,30,58,0.04) 0%, transparent 70%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    #drop-zone:hover::before, #drop-zone.drag-over::before { opacity: 1; }
+    #drop-zone:hover, #drop-zone.drag-over {
+      border-color: var(--red);
+      transform: scale(1.01);
+      box-shadow: 0 0 0 4px var(--red-glow);
+    }
+    .dz-icon {
+      font-size: 2.8rem;
+      display: block;
+      margin-bottom: 14px;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    #drop-zone:hover .dz-icon { transform: scale(1.15) translateY(-4px); }
+    .dz-text { font-size: 0.9rem; color: var(--text-mid); line-height: 1.7; }
+    .dz-text strong { color: var(--red); font-weight: 600; }
+    .dz-filename {
+      margin-top: 12px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-style: italic;
+      min-height: 1.2em;
+      transition: color 0.2s;
+    }
+    .dz-filename.has-file { color: var(--red); font-style: normal; font-weight: 500; }
+    #file-input { display: none; }
+
+    /* ── Controls ───────────────────────────────────────────── */
+    .controls-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px 40px;
+    }
+    @media (max-width: 560px) { .controls-grid { grid-template-columns: 1fr; } }
+
+    .ctrl-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-mid);
+      margin-bottom: 10px;
+      display: block;
+    }
+    .ctrl-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 6px; }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%; height: 3px;
+      background: linear-gradient(to right, var(--red) 0%, var(--red) var(--pct, 75%), rgba(196,30,58,0.2) var(--pct, 75%), rgba(196,30,58,0.2) 100%);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2.5px solid var(--red);
+      box-shadow: 0 2px 8px var(--red-glow);
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+      box-shadow: 0 0 0 6px var(--red-glow);
+    }
+    .range-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .range-value { font-size: 0.82rem; font-weight: 600; color: var(--red); font-variant-numeric: tabular-nums; }
+
+    /* Toggle */
+    .toggle-wrapper { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+    .toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .track {
+      position: absolute; inset: 0;
+      background: rgba(196,30,58,0.2);
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background 0.25s;
+    }
+    .track::before {
+      content: '';
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .toggle input:checked + .track { background: var(--red); }
+    .toggle input:checked + .track::before { transform: translateX(20px); }
+    .toggle-text { font-size: 0.82rem; color: var(--text-mid); }
+
+    /* ── Run button ─────────────────────────────────────────── */
+    #run-btn {
+      margin-top: 28px;
+      width: 100%;
+      padding: 16px;
+      background: var(--red);
+      color: #fff;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+      box-shadow: 0 4px 20px var(--red-glow);
+    }
+    #run-btn::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    #run-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 28px rgba(196,30,58,0.4);
+      background: #a8192f;
+    }
+    #run-btn:active:not(:disabled) { transform: translateY(0); }
+    #run-btn:disabled { background: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+
+    /* ── Spinner ────────────────────────────────────────────── */
+    #spinner {
+      display: none;
+      text-align: center;
+      padding: 48px 0;
+    }
+    .spinner-wrap { position: relative; width: 56px; height: 56px; margin: 0 auto 16px; }
+    .spinner-ring {
+      width: 56px; height: 56px;
+      border: 3px solid rgba(196,30,58,0.15);
+      border-top-color: var(--red);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    .spinner-dot {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 10px; height: 10px;
+      background: var(--red);
+      border-radius: 50%;
+      animation: pulse 0.9s ease-in-out infinite;
+    }
+    @keyframes spin  { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%,100% { transform: translate(-50%,-50%) scale(1); opacity:1; } 50% { transform: translate(-50%,-50%) scale(0.5); opacity:0.4; } }
+    .spinner-text { font-size: 0.85rem; color: var(--text-muted); font-weight: 300; letter-spacing: 0.05em; }
+
+    /* ── Results ────────────────────────────────────────────── */
+    #results {
+      display: none;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    #results.visible { opacity: 1; transform: translateY(0); }
+
+    #waveform-img {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--glass-border);
+      display: block;
+    }
+
+    /* ── Waveform visualizer ────────────────────────────────── */
+    .visualizer-wrap {
+      margin-top: 20px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: rgba(30, 10, 8, 0.04);
+      border: 1px solid var(--glass-border);
+    }
+    #viz-canvas {
+      width: 100%;
+      height: 80px;
+      display: block;
+    }
+
+    /* ── Audio controls ─────────────────────────────────────── */
+    .audio-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    audio {
+      flex: 1;
+      min-width: 200px;
+      height: 36px;
+      accent-color: var(--red);
+    }
+    #download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 10px 20px;
+      background: transparent;
+      color: var(--red);
+      border: 1.5px solid var(--red);
+      border-radius: 10px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    #download-btn:hover {
+      background: var(--red);
+      color: #fff;
+      box-shadow: 0 4px 16px var(--red-glow);
+      transform: translateY(-1px);
+    }
+
+    .meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 12px;
+      display: flex;
+      gap: 16px;
+      font-variant-numeric: tabular-nums;
+    }
+    .meta-chip {
+      background: rgba(196,30,58,0.06);
+      border: 1px solid rgba(196,30,58,0.12);
+      border-radius: 100px;
+      padding: 3px 10px;
+      font-size: 0.72rem;
+      color: var(--text-mid);
+    }
+
+    /* ── Error ──────────────────────────────────────────────── */
+    #error-msg {
+      display: none;
+      margin-top: 14px;
+      background: rgba(196,30,58,0.06);
+      border: 1px solid rgba(196,30,58,0.3);
+      color: var(--red-dark);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 0.83rem;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+    /* ── Mode buttons ───────────────────────────────────────── */
+    .mode-btn {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1.5px solid rgba(196,30,58,0.2);
+      background: transparent;
+      color: var(--text-muted);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-btn:hover { border-color: var(--red); color: var(--red); }
+    .mode-btn.active {
+      background: var(--red);
+      border-color: var(--red);
+      color: #fff;
+      box-shadow: 0 4px 14px var(--red-glow);
+    }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 0 0 48px;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+    }
+    footer a { color: var(--red); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<!-- Ambient orbs -->
+<div class="bg-orbs">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+
+<div class="page">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-badge">AI-Powered</div>
+    <h1>Audio<br /><span>Noise</span> Reducer</h1>
+    <p>Upload a recording. Get back silence.</p>
+  </div>
+
+  <main>
+
+    <!-- Upload -->
+    <div class="glass card">
+      <div class="card-label">01 &nbsp;—&nbsp; Upload</div>
+      <div id="drop-zone">
+        <span class="dz-icon">🎙</span>
+        <p class="dz-text">Drop your audio file here, or <strong>click to browse</strong></p>
+        <div class="dz-filename" id="file-label">No file selected</div>
+      </div>
+      <input type="file" id="file-input" accept="audio/*" />
+    </div>
+
+    <!-- Parameters -->
+    <div class="glass card">
+      <div class="card-label">02 &nbsp;—&nbsp; Parameters</div>
+
+      <!-- Mode selector -->
+      <div style="display:flex; gap:10px; margin-bottom:28px;">
+        <button class="mode-btn active" data-mode="manual">Manual Filter</button>
+        <button class="mode-btn" data-mode="auto">Auto Voice Isolate</button>
+      </div>
+
+      <!-- Auto mode info panel -->
+      <div id="auto-info" style="display:none; background:rgba(196,30,58,0.05); border:1px solid rgba(196,30,58,0.15); border-radius:10px; padding:14px 16px; margin-bottom:24px; font-size:0.8rem; color:var(--text-mid); line-height:1.6;">
+        <strong style="color:var(--red);">Auto Voice Isolate</strong> uses harmonic-percussive separation to lock onto the speaker's voice automatically — no frequency knowledge needed. Works regardless of pitch.
+        <div style="margin-top:14px;">
+          <div class="range-row">
+            <span class="ctrl-label" style="margin-bottom:0;">Separation Strength</span>
+            <span class="range-value" id="margin-val">3.0</span>
+          </div>
+          <input type="range" id="hpss-margin" min="1" max="8" step="0.5" value="3" style="--pct:28%; margin-top:8px;" />
+          <div class="ctrl-hint">Higher = more aggressive voice isolation, may sound thinner</div>
+        </div>
+      </div>
+
+      <div class="controls-grid">
+
+        <div>
+          <div class="range-row">
+            <span class="ctrl-label">Reduction Strength</span>
+            <span class="range-value" id="prop-val">0.75</span>
+          </div>
+          <input type="range" id="prop-decrease" min="0" max="1" step="0.05" value="0.75" style="--pct:75%" />
+          <div class="ctrl-hint">How aggressively to suppress noise</div>
+        </div>
+
+        <div>
+          <div class="range-row">
+            <span class="ctrl-label">Smoothing Window</span>
+            <span class="range-value" id="time-val">1.0 s</span>
+          </div>
+          <input type="range" id="time-constant" min="0.1" max="3.0" step="0.1" value="1.0" style="--pct:30%" />
+          <div class="ctrl-hint">Only active in non-stationary mode</div>
+        </div>
+
+        <div style="grid-column: span 2;">
+          <span class="ctrl-label">Stationary Noise Mode</span>
+          <div class="toggle-wrapper">
+            <label class="toggle">
+              <input type="checkbox" id="stationary" />
+              <span class="track"></span>
+            </label>
+            <span class="toggle-text">Enable for constant-pitch noise (fan, AC hum)</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Frequency filter (manual mode only) -->
+      <div id="manual-section" style="margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--glass-border);">
+        <div class="card-label" style="margin-bottom: 20px;">Frequency Filter</div>
+        <div class="controls-grid">
+
+          <div>
+            <div class="range-row">
+              <span class="ctrl-label">Low Cutoff</span>
+              <span class="range-value" id="low-cut-val">0 Hz</span>
+            </div>
+            <input type="range" id="low-cut" min="0" max="2000" step="10" value="0" style="--pct:0%" />
+            <div class="ctrl-hint">Cut everything <em>below</em> this — kills vehicle rumble</div>
+          </div>
+
+          <div>
+            <div class="range-row">
+              <span class="ctrl-label">High Cutoff</span>
+              <span class="range-value" id="high-cut-val">20000 Hz</span>
+            </div>
+            <input type="range" id="high-cut" min="2000" max="20000" step="100" value="20000" style="--pct:100%" />
+            <div class="ctrl-hint">Cut everything <em>above</em> this — kills hiss &amp; interference</div>
+          </div>
+
+          <div style="grid-column: span 2;">
+            <div style="background: rgba(196,30,58,0.05); border: 1px solid rgba(196,30,58,0.12); border-radius: 10px; padding: 10px 14px; font-size: 0.76rem; color: var(--text-mid);">
+              🎙 <strong>For speech isolation:</strong> set Low Cutoff to ~300 Hz to kill vehicle rumble. Leave High Cutoff at 20000 Hz unless you also want to cut hiss.
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <button id="run-btn" disabled>Reduce Noise</button>
+      <div id="error-msg"></div>
+    </div>
+
+    <!-- Spinner -->
+    <div id="spinner">
+      <div class="spinner-wrap">
+        <div class="spinner-ring"></div>
+        <div class="spinner-dot"></div>
+      </div>
+      <div class="spinner-text">Analysing &amp; cleaning your audio&hellip;</div>
+    </div>
+
+    <!-- Results -->
+    <div class="glass card" id="results">
+      <div class="card-label">03 &nbsp;—&nbsp; Result</div>
+
+      <img id="waveform-img" src="" alt="Waveform comparison" />
+
+      <div class="visualizer-wrap">
+        <canvas id="viz-canvas" height="80"></canvas>
+      </div>
+
+      <div class="audio-controls">
+        <audio id="audio-player" controls></audio>
+        <a id="download-btn" href="#" download="cleaned_audio.wav">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download WAV
+        </a>
+      </div>
+
+      <div class="meta" id="audio-meta"></div>
+    </div>
+
+  </main>
+
+  <footer>
+    Powered by <a href="https://github.com/timsainburg/noisereduce" target="_blank">noisereduce</a> &amp; <a href="https://librosa.org" target="_blank">librosa</a>
+  </footer>
+
+</div>
+
+<script>
+  // ── Elements ──────────────────────────────────────────────
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const fileLabel  = document.getElementById('file-label');
+  const runBtn     = document.getElementById('run-btn');
+  const spinner    = document.getElementById('spinner');
+  const results    = document.getElementById('results');
+  const errorMsg   = document.getElementById('error-msg');
+  const propSlider    = document.getElementById('prop-decrease');
+  const propVal       = document.getElementById('prop-val');
+  const timeSlider    = document.getElementById('time-constant');
+  const timeVal       = document.getElementById('time-val');
+  const lowCutSlider  = document.getElementById('low-cut');
+  const lowCutVal     = document.getElementById('low-cut-val');
+  const highCutSlider = document.getElementById('high-cut');
+  const highCutVal    = document.getElementById('high-cut-val');
+  const hpssMargin    = document.getElementById('hpss-margin');
+  const marginVal     = document.getElementById('margin-val');
+  const autoInfo      = document.getElementById('auto-info');
+  const manualSection = document.getElementById('manual-section');
+  const modeBtns      = document.querySelectorAll('.mode-btn');
+
+  let currentMode = 'manual';
+
+  modeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      modeBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMode = btn.dataset.mode;
+      if (currentMode === 'auto') {
+        autoInfo.style.display = 'block';
+        manualSection.style.display = 'none';
+      } else {
+        autoInfo.style.display = 'none';
+        manualSection.style.display = 'block';
+      }
+    });
+  });
+
+  hpssMargin && hpssMargin.addEventListener('input', () => {
+    marginVal.textContent = parseFloat(hpssMargin.value).toFixed(1);
+    updateSlider(hpssMargin);
+  });
+  const player     = document.getElementById('audio-player');
+  const canvas     = document.getElementById('viz-canvas');
+  const ctx        = canvas.getContext('2d');
+
+  let selectedFile = null;
+  let audioCtx, analyser, source, rafId;
+
+  // ── Slider fill ───────────────────────────────────────────
+  function updateSlider(el) {
+    const min = parseFloat(el.min), max = parseFloat(el.max), val = parseFloat(el.value);
+    el.style.setProperty('--pct', ((val - min) / (max - min) * 100) + '%');
+  }
+
+  propSlider.addEventListener('input', () => {
+    propVal.textContent = parseFloat(propSlider.value).toFixed(2);
+    updateSlider(propSlider);
+  });
+  timeSlider.addEventListener('input', () => {
+    timeVal.textContent = parseFloat(timeSlider.value).toFixed(1) + ' s';
+    updateSlider(timeSlider);
+  });
+  lowCutSlider.addEventListener('input', () => {
+    lowCutVal.textContent = lowCutSlider.value + ' Hz';
+    updateSlider(lowCutSlider);
+  });
+  highCutSlider.addEventListener('input', () => {
+    highCutVal.textContent = parseInt(highCutSlider.value).toLocaleString() + ' Hz';
+    updateSlider(highCutSlider);
+  });
+
+  // ── File handling ──────────────────────────────────────────
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+
+  function setFile(f) {
+    selectedFile = f;
+    fileLabel.textContent = f.name;
+    fileLabel.classList.add('has-file');
+    runBtn.disabled = false;
+    hideError();
+    results.classList.remove('visible');
+    setTimeout(() => { results.style.display = 'none'; }, 300);
+  }
+
+  // ── Submit ────────────────────────────────────────────────
+  runBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    hideError();
+    results.classList.remove('visible');
+    results.style.display = 'none';
+    spinner.style.display = 'block';
+    runBtn.disabled = true;
+
+    const form = new FormData();
+    form.append('file', selectedFile);
+    form.append('mode', currentMode);
+    form.append('prop_decrease', propSlider.value);
+    form.append('stationary', document.getElementById('stationary').checked);
+    form.append('time_constant_s', timeSlider.value);
+    form.append('low_cut', lowCutSlider.value);
+    form.append('high_cut', highCutSlider.value);
+    form.append('hpss_margin', hpssMargin.value);
+
+    try {
+      const res = await fetch('/process', { method: 'POST', body: form });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Server error'); }
+      const data = await res.json();
+
+      document.getElementById('waveform-img').src = data.waveform;
+      player.src = data.audio;
+      document.getElementById('download-btn').href = data.audio;
+
+      const metaEl = document.getElementById('audio-meta');
+      metaEl.innerHTML =
+        `<span class="meta-chip">Sample rate: ${data.sample_rate} Hz</span>` +
+        `<span class="meta-chip">Duration: ${data.duration}s</span>`;
+
+      spinner.style.display = 'none';
+      results.style.display = 'block';
+      requestAnimationFrame(() => results.classList.add('visible'));
+
+    } catch (err) {
+      spinner.style.display = 'none';
+      showError(err.message);
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+
+  // ── Live waveform visualizer ──────────────────────────────
+  function setupVisualizer() {
+    if (audioCtx) { audioCtx.close(); cancelAnimationFrame(rafId); }
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+
+    source = audioCtx.createMediaElementSource(player);
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    drawViz();
+  }
+
+  function drawViz() {
+    rafId = requestAnimationFrame(drawViz);
+
+    const W = canvas.offsetWidth;
+    const H = canvas.height;
+    canvas.width = W;
+
+    const bufLen = analyser.frequencyBinCount;
+    const dataArr = new Uint8Array(bufLen);
+    analyser.getByteFrequencyData(dataArr);
+
+    ctx.clearRect(0, 0, W, H);
+
+    const barW = (W / bufLen) * 2.2;
+    let x = 0;
+
+    for (let i = 0; i < bufLen; i++) {
+      const barH = (dataArr[i] / 255) * H * 0.9;
+      const alpha = 0.4 + (dataArr[i] / 255) * 0.6;
+      ctx.fillStyle = `rgba(196, 30, 58, ${alpha})`;
+      const y = H - barH;
+      const r = Math.min(barW / 2, 3);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + barW - r, y);
+      ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+      ctx.lineTo(x + barW, H);
+      ctx.lineTo(x, H);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+      x += barW + 1;
+    }
+  }
+
+  // Draw idle state before audio loads
+  function drawIdle() {
+    const W = canvas.offsetWidth || 700;
+    canvas.width = W;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const bars = 60;
+    const bw = W / bars - 1;
+    for (let i = 0; i < bars; i++) {
+      const h = 4 + Math.sin(i * 0.4) * 3;
+      ctx.fillStyle = 'rgba(196,30,58,0.15)';
+      ctx.fillRect(i * (bw + 1), H - h, bw, h);
+    }
+  }
+  drawIdle();
+
+  player.addEventListener('play', () => {
+    if (!audioCtx || audioCtx.state === 'closed') setupVisualizer();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  });
+  player.addEventListener('pause',  () => cancelAnimationFrame(rafId));
+  player.addEventListener('ended',  () => { cancelAnimationFrame(rafId); drawIdle(); });
+
+  // ── Helpers ───────────────────────────────────────────────
+  function showError(msg) { errorMsg.textContent = '⚠ ' + msg; errorMsg.style.display = 'block'; }
+  function hideError()    { errorMsg.style.display = 'none'; }
+</script>
+</body>
+</html>
